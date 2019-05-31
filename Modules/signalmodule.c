@@ -945,6 +945,120 @@ signal_pthread_sigmask_impl(PyObject *module, int how, sigset_t mask)
 #endif   /* #ifdef PYPTHREAD_SIGMASK */
 
 
+#ifdef HAVE_SIGNALFD
+static int initialized;
+static PyStructSequence_Field struct_signalfd_siginfo_fields[] = {
+    {"ssi_signo",           "signal number"},
+    {"ssi_errno",           "Error number"},
+    {"ssi_code",            "Signal code"},
+    {"ssi_pid",             "PID of sender"},
+    {"ssi_uid",             "Real UID of sender"},
+    {"ssi_fd",              "File descriptor (SIGIO)"},
+    {"ssi_tid",             "Kernel timer ID (POSIX timers)"},
+    {"ssi_band",            "Band event (SIGIO)"},
+    {"ssi_overrun",         "POSIX timer overrun count"},
+    {"ssi_trapno",          "Trap number that caused signal"},
+    {"ssi_status",          "Exit status or signal (SIGCHLD)"},
+    {"ssi_int",             "Integer sent by sigqueue(3)"},
+    {"ssi_ptr",             "Pointer sent by sigqueue(3)"},
+    {"ssi_utime",           "User CPU time consumed (SIGCHLD)"},
+    {"ssi_stime",           "System CPU time consumed (SIGCHLD)"},
+    {"ssi_addr",            "Address that generated signal"},
+    {0}
+};
+
+PyDoc_STRVAR(struct_signalfd_siginfo__doc__,
+"struct_signalfd_siginfo: Result from signalfd\n\n\
+This object may be accessed either as a tuple of\n\
+(ssi_signo, ssi_errno, ssi_code, si_pid, si_uid, ssi_fd, ssi_tid\n\
+ssi_band, ssi_overrun, ssi_trapno, ssi_status, ssi_int, ssi_ptr\n\
+ssi_utime, ssi_stime, ssi_addr),\n\
+or via the attributes ssi_signo, ssi_errno, ssi_code, and so on.");
+
+static PyStructSequence_Desc struct_signalfd_siginfo_desc = {
+    "signal.signalfd_siginfo",           /* name */
+    struct_signalfd_siginfo__doc__,       /* doc */
+    struct_signalfd_siginfo_fields,       /* fields */
+    16                                    /* n_in_sequence */
+};
+
+static PyTypeObject SignalfdSiginfoType;
+
+static PyObject *
+fill_signalfdsiginfo(siginfo_t *si)
+{
+    PyObject *result = PyStructSequence_New(&SignalfdSiginfoType);
+    if (!result)
+        return NULL;
+
+    PyStructSequence_SET_ITEM(result, 0, PyLong_FromLong((long)(si->si_signo)));
+    PyStructSequence_SET_ITEM(result, 1, PyLong_FromLong((long)(si->si_errno)));
+    PyStructSequence_SET_ITEM(result, 2, PyLong_FromLong((long)(si->si_code)));
+    PyStructSequence_SET_ITEM(result, 3, PyLong_FromPid(si->si_pid));
+    PyStructSequence_SET_ITEM(result, 4, _PyLong_FromUid(si->si_uid));
+    PyStructSequence_SET_ITEM(result, 5, PyLong_FromLong((long)(si_fd)));
+    PyStructSequence_SET_ITEM(result, 6, PyLong_FromLong(0L));
+#ifdef HAVE_SIGINFO_T_SI_BAND
+    PyStructSequence_SET_ITEM(result, 7, PyLong_FromLong(si->si_band));
+#else
+    PyStructSequence_SET_ITEM(result, 7, PyLong_FromLong(0L));
+#endif
+    PyStructSequence_SET_ITEM(result, 8, PyLong_FromLong((long)(si->si_overrun)));
+    PyStructSequence_SET_ITEM(result, 9, PyLong_FromLong((long)(si->si_trapno)));
+    PyStructSequence_SET_ITEM(result, 10, PyLong_FromLong((long)(si->si_status)));
+    PyStructSequence_SET_ITEM(result, 11, PyLong_FromLong((long)(si->si_int)));
+    PyStructSequence_SET_ITEM(result, 12, PyLong_FromLong((long)(si->si_ptr)));
+    PyStructSequence_SET_ITEM(result, 13, PyLong_FromLong((long)(si->si_utime)));
+    PyStructSequence_SET_ITEM(result, 14, PyLong_FromLong((long)(si->si_stime)));
+    PyStructSequence_SET_ITEM(result, 15, PyLong_FromLong((long)(si->si_addr)));
+    if (PyErr_Occurred()) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    return result;
+}
+
+#endif   /* #ifdef HAVE_SIGNALFD */
+
+#ifdef HAVE_SIGNALFD
+
+/*[clinic input]
+signal.signalfd
+
+    fd: int
+    mask: sigset_t
+    flags: int
+    /
+
+Creates a file descriptor that can be used to accept signals targeted
+at the caller.
+
+Returns a struct_siginfo returned by read()'s from a signalfd
+file descriptor.
+[clinic start generated code]*/
+
+static PyObject *
+signal_signalfd_impl(PyObject *module, int fd, sigset_t mask, int flags)
+{
+    siginfo_t si;
+    sigset_t previous;
+    int err;
+
+    err = signalfd(fd, &mask, flags);
+
+    if (err != 0) {
+        errno = err;
+        PyErr_SetFromErrno(PyExc_OSError);
+        return NULL;
+    }
+
+    return fill_signalfdsiginfo(&si);
+}
+
+#endif   /* #ifdef HAVE_SIGNALFD */
+
+
 #ifdef HAVE_SIGPENDING
 
 /*[clinic input]
