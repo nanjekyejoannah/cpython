@@ -50,6 +50,35 @@ static void print_subinterp(void)
     );
 }
 
+static int test_pyfinalize_from_subinterpreter(void)
+{
+    PyThreadState *mainstate, *substate;
+    PyGILState_STATE gilstate;
+
+    _testembed_Py_Initialize();
+    mainstate = PyThreadState_Get();
+
+    PyEval_InitThreads();
+    PyEval_ReleaseThread(mainstate);
+
+    gilstate = PyGILState_Ensure();
+    print_subinterp();
+    PyThreadState_Swap(NULL);
+
+    substate = Py_NewInterpreter();
+    print_subinterp();
+    Py_EndInterpreter(substate);
+
+    PyThreadState_Swap(substate);
+    print_subinterp();
+    PyGILState_Release(gilstate);
+
+    PyEval_RestoreThread(substate);
+    Py_Finalize();
+
+    return 0;
+}
+
 static int test_repeated_init_and_subinterpreters(void)
 {
     PyThreadState *mainstate, *substate;
@@ -1473,6 +1502,7 @@ struct TestCase
 
 static struct TestCase TestCases[] = {
     {"test_forced_io_encoding", test_forced_io_encoding},
+    {"test_pyfinalize_from_subinterpreter", test_pyfinalize_from_subinterpreter},
     {"test_repeated_init_and_subinterpreters", test_repeated_init_and_subinterpreters},
     {"test_pre_initialization_api", test_pre_initialization_api},
     {"test_pre_initialization_sys_options", test_pre_initialization_sys_options},

@@ -178,6 +178,9 @@ class EmbeddingTests(EmbeddingTestsMixin, unittest.TestCase):
                 self.assertNotEqual(sub.tstate, main.tstate)
                 self.assertNotEqual(sub.modules, main.modules)
 
+    def test_pyfinalize_from_subinterpreter(self):
+        out, err = self.run_embedded_interpreter("test_pyfinalize_from_subinterpreter")
+
     def test_forced_io_encoding(self):
         # Checks forced configuration of embedded interpreter IO streams
         env = dict(os.environ, PYTHONIOENCODING="utf-8:surrogateescape")
