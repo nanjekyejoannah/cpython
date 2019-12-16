@@ -5790,7 +5790,7 @@ assemble_jump_offsets(struct assembler *a, struct compiler *c)
     } while (extended_arg_recompile);
 }
 
-static PyObject *
+PyObject *
 dict_keys_inorder(PyObject *dict, Py_ssize_t offset)
 {
     PyObject *tuple, *k, *v;
@@ -5809,7 +5809,7 @@ dict_keys_inorder(PyObject *dict, Py_ssize_t offset)
     return tuple;
 }
 
-static PyObject *
+PyObject *
 consts_dict_keys_inorder(PyObject *dict)
 {
     PyObject *consts, *k, *v;
@@ -6066,6 +6066,8 @@ assemble(struct compiler *c, int addNone)
     if (_PyBytes_Resize(&a.a_bytecode, a.a_offset * sizeof(_Py_CODEUNIT)) < 0)
         goto error;
 
+    /*result = PyCFG_Optimize(c, &a)
+    co = makecode(result.compiler, result.assembler);*/
     co = makecode(c, &a);
  error:
     assemble_free(&a);
