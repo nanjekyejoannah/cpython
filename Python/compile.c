@@ -6020,6 +6020,11 @@ assemble(struct compiler *c, int addNone)
     struct assembler a;
     int i, j, nblocks;
     PyCodeObject *co = NULL;
+    PyObject *consts = NULL;
+    PyObject *names = NULL;
+
+    consts = consts_dict_keys_inorder(c->u->u_consts);
+    names = dict_keys_inorder(c->u->u_names, 0);
 
     /* Make sure every block that falls off the end returns None.
        XXX NEXT_BLOCK() isn't quite right, because if the last
@@ -6066,8 +6071,7 @@ assemble(struct compiler *c, int addNone)
     if (_PyBytes_Resize(&a.a_bytecode, a.a_offset * sizeof(_Py_CODEUNIT)) < 0)
         goto error;
 
-    /*result = PyCFG_Optimize(c, &a)
-    co = makecode(result.compiler, result.assembler);*/
+    c->u->u_blocks = PyCFG_Optimize(c, &a, consts, names);
     co = makecode(c, &a);
  error:
     assemble_free(&a);
