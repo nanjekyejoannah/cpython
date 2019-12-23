@@ -23,40 +23,37 @@
     (blocks[start]==blocks[end])
 
 static int
-get_arg(struct instr *instr)
+get_arg(_instr *instr)
 {
     return instr->i_oparg;
-}
-
+} 
 
 static void
-fill_nops(struct instr *instr)
+fill_nops(_instr *instr)
 {
     instr->i_opcode = NOP;
     instr->i_oparg  = NULL;
 }
 
-PyObject*
-PyCFG_Optimize(struct compiler *c, struct assembler *a, PyObject* consts, PyObject *names)
+_basicblock
+PyCFG_Optimize(_compiler *c, _assembler *a, PyObject* consts, PyObject *names)
 {
-    basicblock *b, *entryblock = NULL;
-    basicblock **stack, **sp;
+    Py_ssize_t h, i, nexti, op_start, tgt;
+    unsigned char opcode, nextop;
+    _basicblock *b, *entryblock = NULL;
+    _basicblock **stack, **sp;
     int nblocks = 0, maxdepth = 0;
+
+    unsigned int cumlc = 0, lastlc = 0;
 
     Py_ssize_t codesize = PyBytes_GET_SIZE(a->a_bytecode);
     assert(codesize % sizeof(_Py_CODEUNIT) == 0);
     Py_ssize_t codelen = codesize / sizeof(_Py_CODEUNIT);
 
-    for (b = c->u->u_blocks; b != NULL; b = b->b_list) {
-        b->b_startdepth = INT_MIN;
-        entryblock = b;
-        nblocks++;
-    }
-
     b = c->u->u_blocks;
     for (i = 0; i < b->b_iused; i++) {
         struct instr *instr = &b->b_instr[i];
-        opecode = instr->i_opcode;
+        opcode = instr->i_opcode;
 
         Py_ssize_t nexti = i + 1;
         struct instr * nextinst = &b->b_instr[nexti];
@@ -85,7 +82,20 @@ PyCFG_Optimize(struct compiler *c, struct assembler *a, PyObject* consts, PyObje
                     cumlc = 0;
                 }
                 break;
+                
+            /*......................................
+                Remove unreachable ops after RETURN 
+            ......................................*/
+
         }
     }
+
+  exitError:
+    code = NULL;
+
+  exitUnchanged:
+    Py_XINCREF(b);
+    PyMem_Free(blocks);
+    PyMem_Free(codestr);
     return b;                       
 }

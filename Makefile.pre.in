@@ -325,6 +325,7 @@ PYTHON_OBJS=	\
 		Python/codecs.o \
 		Python/compile.o \
 		Python/context.o \
+        Python/control_flow_optimizer.o \
 		Python/dynamic_annotations.o \
 		Python/errors.o \
 		Python/frozenmain.o \

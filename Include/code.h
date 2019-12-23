@@ -165,7 +165,13 @@ PyAPI_FUNC(PyObject*) _PyCode_ConstantKey(PyObject *obj);
 PyAPI_FUNC(PyObject*) PyCode_Optimize(PyObject *code, PyObject* consts,
                                       PyObject *names, PyObject *lnotab);
 
-PyAPI_FUNC(PyObject*) PyCFG_Optimize(struct compiler *c, struct assembler *a, PyObject* consts, PyObject *names);
+typedef struct compiler * _compiler;
+typedef struct assembler * _assembler;
+typedef struct basicblock_ * _basicblock;
+typedef struct instr * _instr;
+
+PyAPI_FUNC(_basicblock) PyCFG_Optimize(_compiler *c, _assembler *a,
+                                     PyObject* consts, PyObject *names);
 
 
 #ifndef Py_LIMITED_API
