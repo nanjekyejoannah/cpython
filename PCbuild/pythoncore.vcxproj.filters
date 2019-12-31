@@ -941,9 +941,6 @@
     <ClCompile Include="..\Python\context.h">
       <Filter>Python</Filter>
     </ClCompile>
-    <ClCompile Include="..\Python\control_flow_optimizer.c">
-      <Filter>Python</Filter>
-    </ClCompile>
     <ClCompile Include="..\Python\dynamic_annotations.c">
       <Filter>Python</Filter>
     </ClCompile>

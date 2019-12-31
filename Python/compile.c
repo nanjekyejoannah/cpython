@@ -41,6 +41,18 @@
 #define COMP_SETCOMP  2
 #define COMP_DICTCOMP 3
 
+#define UNCONDITIONAL_JUMP(op)  (op==JUMP_ABSOLUTE || op==JUMP_FORWARD)
+#define CONDITIONAL_JUMP(op) (op==POP_JUMP_IF_FALSE || op==POP_JUMP_IF_TRUE \
+    || op==JUMP_IF_FALSE_OR_POP || op==JUMP_IF_TRUE_OR_POP)
+#define ABSOLUTE_JUMP(op) (op==JUMP_ABSOLUTE \
+    || op==POP_JUMP_IF_FALSE || op==POP_JUMP_IF_TRUE \
+    || op==JUMP_IF_FALSE_OR_POP || op==JUMP_IF_TRUE_OR_POP)
+#define JUMPS_ON_TRUE(op) (op==POP_JUMP_IF_TRUE || op==JUMP_IF_TRUE_OR_POP)
+#define GETJUMPTGT(arr, i) (get_arg(arr, i) / sizeof(_Py_CODEUNIT) + \
+        (ABSOLUTE_JUMP(_Py_OPCODE(arr[i])) ? 0 : i+1))
+#define ISBASICBLOCK(blocks, start, end) \
+    (blocks[start]==blocks[end])
+
 struct instr {
     unsigned i_jabs : 1;
     unsigned i_jrel : 1;
@@ -6012,6 +6024,147 @@ dump_basicblock(const basicblock *b)
     }
 }
 #endif
+
+static int
+get_arg(struct instr *instr)
+{
+    return instr->i_oparg;
+} 
+
+static void
+fill_instr(struct instr *instr, unsigned char opecode, unsigned char oparg)
+{
+    instr->i_opcode = opecode;
+    instr->i_oparg = oparg;
+}
+
+static unsigned int *
+markblocks(struct compiler *c, Py_ssize_t len)
+{
+    unsigned int *blocks = PyMem_New(unsigned int, len);
+    int i, j, opcode, blockcnt = 0;
+    basicblock *b = NULL;
+
+    if (blocks == NULL) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    memset(blocks, 0, len*sizeof(int));
+
+    /* Mark labels in the first pass */
+    b = c->u->u_blocks;
+    if (b == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < b->b_iused; i++) {
+        struct instr *instr = &b->b_instr[i];
+        opcode = instr->i_opcode;
+        switch (opcode) {
+            case FOR_ITER:
+            case JUMP_FORWARD:
+            case JUMP_IF_FALSE_OR_POP:
+            case JUMP_IF_TRUE_OR_POP:
+            case POP_JUMP_IF_FALSE:
+            case POP_JUMP_IF_TRUE:
+            case JUMP_ABSOLUTE:
+            case SETUP_FINALLY:
+            case SETUP_WITH:
+            case SETUP_ASYNC_WITH:
+                break;
+        }
+    }
+    /* Build block numbers in the second pass */
+    for (i = 0; i < len; i++) {
+        blockcnt += blocks[i];
+        blocks[i] = blockcnt;
+    }
+    return blocks;
+}
+
+basicblock *
+PyCFG_Optimize(struct compiler *c, struct assembler *a,
+               PyObject* consts, PyObject *names)
+{
+    Py_ssize_t i, j, h, nexti, op_start, tgt;
+    unsigned char opcode, nextop, dec_h_op, h_op, inc_h_op;
+    basicblock *b = NULL;
+    
+
+    unsigned int cumlc = 0, lastlc = 0;
+    unsigned int *blocks = NULL;
+
+    Py_ssize_t codesize = PyBytes_GET_SIZE(a->a_bytecode);
+    assert(codesize % sizeof(_Py_CODEUNIT) == 0);
+    Py_ssize_t codelen = codesize / sizeof(_Py_CODEUNIT);
+
+    blocks = markblocks(c, codelen);
+    if (blocks == NULL)
+        goto exitError;
+    assert(PyList_Check(consts));
+
+    for (b = c->u->u_blocks; b != NULL; b = b->b_list) {
+        for (i = 0; i < b->b_iused; i++) {
+            struct instr *instr = &b->b_instr[i];
+            opcode = instr->i_opcode;
+
+            op_start = i;
+            int dec_op_start = op_start - 1;
+            struct instr *dec_op_start_instr = &b->b_instr[dec_op_start];
+            while (op_start >= 1 && dec_op_start_instr->i_opcode == EXTENDED_ARG) {
+                op_start--;
+            }
+
+            Py_ssize_t nexti = i + 1;
+            struct instr * nextinst = &b->b_instr[nexti];
+            nextop = nextinst->i_opcode;
+
+            switch (opcode) {
+
+                /*..........................................
+                    Skip over LOAD_CONST trueconst
+                    POP_JUMP_IF_FALSE xx.  This improves
+                    "while 1" performance.  
+                ..........................................*/
+            
+                case LOAD_CONST:
+                    cumlc = lastlc + 1;
+                    if (nextop != POP_JUMP_IF_FALSE ||
+                        !ISBASICBLOCK(blocks, op_start, i + 1)) {
+                        break;
+                    }
+                    PyObject* cnt = PyList_GET_ITEM(consts, get_arg(instr));
+                    int is_true = PyObject_IsTrue(cnt);
+                    if (is_true == -1) {
+                        goto exitError;
+                    }
+                    if (is_true == 1) {
+                        fill_instr(instr, NOP, 0);
+                        fill_instr(nextinst, NOP, 0);
+
+                        Py_ssize_t next_next = nexti + 1;
+                        struct instr * next_nextinst = &b->b_instr[nexti];
+                        fill_instr(next_nextinst, NOP, 0);
+                        cumlc = 0;
+                    }
+                    break; 
+                
+            }
+        }
+    }
+
+    b = c->u->u_blocks;
+    PyMem_Free(blocks);
+    return b; 
+
+ exitError:
+    b = NULL;
+ 
+ exitUnchanged:
+    Py_XINCREF(b);
+    PyMem_Free(blocks);
+    return b;
+
+}
 
 static PyCodeObject *
 assemble(struct compiler *c, int addNone)

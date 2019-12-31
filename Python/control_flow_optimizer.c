@@ -23,79 +23,12 @@
     (blocks[start]==blocks[end])
 
 static int
-get_arg(_instr *instr)
+get_arg(struct _instr instr)
 {
     return instr->i_oparg;
-} 
-
-static void
-fill_nops(_instr *instr)
-{
-    instr->i_opcode = NOP;
-    instr->i_oparg  = NULL;
 }
 
-_basicblock
-PyCFG_Optimize(_compiler *c, _assembler *a, PyObject* consts, PyObject *names)
+void
+PyCFG_Optimize();
 {
-    Py_ssize_t h, i, nexti, op_start, tgt;
-    unsigned char opcode, nextop;
-    _basicblock *b, *entryblock = NULL;
-    _basicblock **stack, **sp;
-    int nblocks = 0, maxdepth = 0;
-
-    unsigned int cumlc = 0, lastlc = 0;
-
-    Py_ssize_t codesize = PyBytes_GET_SIZE(a->a_bytecode);
-    assert(codesize % sizeof(_Py_CODEUNIT) == 0);
-    Py_ssize_t codelen = codesize / sizeof(_Py_CODEUNIT);
-
-    b = c->u->u_blocks;
-    for (i = 0; i < b->b_iused; i++) {
-        struct instr *instr = &b->b_instr[i];
-        opcode = instr->i_opcode;
-
-        Py_ssize_t nexti = i + 1;
-        struct instr * nextinst = &b->b_instr[nexti];
-        nextop = nextinst->i_opcode;
-
-        switch (opcode) {
-
-            /*..........................................
-                Skip over LOAD_CONST trueconst
-                POP_JUMP_IF_FALSE xx.  This improves
-                "while 1" performance.  
-            ..........................................*/
-
-            case LOAD_CONST:
-                cumlc = lastlc + 1;
-                if (nextop != POP_JUMP_IF_FALSE) {
-                    break;
-                }
-                PyObject* cnt = PyList_GET_ITEM(consts, get_arg(instr));
-                int is_true = PyObject_IsTrue(cnt);
-                if (is_true == -1) {
-                    goto exitError;
-                }
-                if (is_true == 1) {
-                    fill_nops(instr);
-                    cumlc = 0;
-                }
-                break;
-                
-            /*......................................
-                Remove unreachable ops after RETURN 
-            ......................................*/
-
-        }
-    }
-
-  exitError:
-    code = NULL;
-
-  exitUnchanged:
-    Py_XINCREF(b);
-    PyMem_Free(blocks);
-    PyMem_Free(codestr);
-    return b;                       
 }
