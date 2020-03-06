@@ -286,6 +286,8 @@ static PyObject *ChannelNotFoundError;
 static PyObject *ChannelClosedError;
 static PyObject *ChannelEmptyError;
 static PyObject *ChannelNotEmptyError;
+static PyObject *ChannelReleasedError;
+static PyObject *NotReceivedError;
 
 static int
 channel_exceptions_init(PyObject *ns)
@@ -293,7 +295,7 @@ channel_exceptions_init(PyObject *ns)
     // XXX Move the exceptions into per-module memory?
 
     // A channel-related operation failed.
-    ChannelError = PyErr_NewException("_xxsubinterpreters.ChannelError",
+    ChannelError = PyErr_NewException("_interpreters.ChannelError",
                                       PyExc_RuntimeError, NULL);
     if (ChannelError == NULL) {
         return -1;
@@ -304,7 +306,7 @@ channel_exceptions_init(PyObject *ns)
 
     // An operation tried to use a channel that doesn't exist.
     ChannelNotFoundError = PyErr_NewException(
-            "_xxsubinterpreters.ChannelNotFoundError", ChannelError, NULL);
+            "_interpreters.ChannelNotFoundError", ChannelError, NULL);
     if (ChannelNotFoundError == NULL) {
         return -1;
     }
@@ -314,7 +316,7 @@ channel_exceptions_init(PyObject *ns)
 
     // An operation tried to use a closed channel.
     ChannelClosedError = PyErr_NewException(
-            "_xxsubinterpreters.ChannelClosedError", ChannelError, NULL);
+            "_interpreters.ChannelClosedError", ChannelError, NULL);
     if (ChannelClosedError == NULL) {
         return -1;
     }
@@ -322,9 +324,30 @@ channel_exceptions_init(PyObject *ns)
         return -1;
     }
 
+    // An operation tried to use a released channel.
+    ChannelReleasedError = PyErr_NewException(
+            "_interpreters.ChannelReleasedError", ChannelClosedError, NULL);
+    if (ChannelReleasedError == NULL) {
+        return -1;
+    }
+    if (PyDict_SetItemString(ns, "ChannelReleasedError", ChannelReleasedError) != 0) {
+        return -1;
+    }
+
+    // An operation trying to send an object when Nothing was waiting
+    // to receive it
+    NotReceivedError = PyErr_NewException(
+            "_interpreters.NotReceivedError", ChannelError, NULL);
+    if (NotReceivedError == NULL) {
+        return -1;
+    }
+    if (PyDict_SetItemString(ns, "NotReceivedError", NotReceivedError) != 0) {
+        return -1;
+    }
+
     // An operation tried to pop from an empty channel.
     ChannelEmptyError = PyErr_NewException(
-            "_xxsubinterpreters.ChannelEmptyError", ChannelError, NULL);
+            "_interpreters.ChannelEmptyError", ChannelError, NULL);
     if (ChannelEmptyError == NULL) {
         return -1;
     }
@@ -334,7 +357,7 @@ channel_exceptions_init(PyObject *ns)
 
     // An operation tried to close a non-empty channel.
     ChannelNotEmptyError = PyErr_NewException(
-            "_xxsubinterpreters.ChannelNotEmptyError", ChannelError, NULL);
+            "_interpreters.ChannelNotEmptyError", ChannelError, NULL);
     if (ChannelNotEmptyError == NULL) {
         return -1;
     }
@@ -484,6 +507,7 @@ typedef struct _channelend {
     struct _channelend *next;
     int64_t interp;
     int open;
+    int release;
 } _channelend;
 
 static _channelend *
@@ -618,6 +642,10 @@ _channelends_associate(_channelends *ends, int64_t interp, int send)
             PyErr_SetString(ChannelClosedError, "channel already closed");
             return -1;
         }
+        if (end->release && !end->open) {
+            PyErr_SetString(ChannelReleasedError, "channel released");
+            return -1;
+        }
         // already associated
         return 0;
     }
@@ -625,6 +653,27 @@ _channelends_associate(_channelends *ends, int64_t interp, int send)
         return -1;
     }
     return 0;
+}
+
+static int64_t *
+_channelends_list_interpreters(_channelends *ends, int64_t *count, int send)
+{
+    int64_t numopen = send ? ends->numsendopen : ends->numrecvopen;
+
+    int64_t *ids = PyMem_NEW(int64_t, (Py_ssize_t)numopen);
+    if (ids == NULL) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    _channelend *ref = send ? ends->send : ends->recv;
+    for (int64_t i=0; ref != NULL; ref = ref->next, i++) {
+        ids[i] = ref->interp;
+    }
+
+    *count = numopen;
+
+    return ids;
 }
 
 static int
@@ -711,6 +760,7 @@ typedef struct _channel {
     _channelqueue *queue;
     _channelends *ends;
     int open;
+    int release;
     struct _channel_closing *closing;
 } _PyChannelState;
 
@@ -768,6 +818,10 @@ _channel_add(_PyChannelState *chan, int64_t interp,
         PyErr_SetString(ChannelClosedError, "channel closed");
         goto done;
     }
+    if (chan->release && !chan->open) {
+            PyErr_SetString(ChannelReleasedError, "channel released");
+            return -1;
+    }
     if (_channelends_associate(chan->ends, interp, 1) != 0) {
         goto done;
     }
@@ -790,6 +844,10 @@ _channel_next(_PyChannelState *chan, int64_t interp)
 
     if (!chan->open) {
         PyErr_SetString(ChannelClosedError, "channel closed");
+        goto done;
+    }
+    if (chan->release && !chan->open) {
+        PyErr_SetString(ChannelReleasedError, "channel released");
         goto done;
     }
     if (_channelends_associate(chan->ends, interp, 0) != 0) {
@@ -1283,6 +1341,83 @@ _channel_destroy(_channels *channels, int64_t id)
 }
 
 static int
+_channel_send_buffer(_channels *channels, int64_t id, PyObject *obj)
+{
+    Py_buffer buffer;
+    PyObject *bytes;
+
+    if (PyObject_GetBuffer(obj, &buffer, PyBUF_SIMPLE) < 0) {
+        PyErr_Format(PyExc_TypeError,
+                     "Error creating object buffer, %.80s found",
+                     Py_TYPE(obj)->tp_name);
+        return -1;
+    }
+
+    if (buffer.len == 0) {
+        PyBuffer_Release(&buffer);
+        return -1;
+    }
+
+    PyInterpreterState *interp = _get_current();
+    if (interp == NULL) {
+        PyBuffer_Release(&buffer);
+        return -1;
+    }
+
+    // Look up the channel.
+    PyThread_type_lock mutex = NULL;
+    _PyChannelState *chan = _channels_lookup(channels, id, &mutex);
+    if (chan == NULL) {
+        PyBuffer_Release(&buffer);
+        return -1;
+    }
+    // Past this point we are responsible for releasing the mutex.
+
+    if (chan->closing != NULL) {
+        PyErr_Format(ChannelClosedError, "channel %" PRId64 " closed", id);
+        PyThread_release_lock(mutex);
+        PyBuffer_Release(&buffer);
+        return -1;
+    }
+
+    // Convert the buffer to cross-interpreter data.
+    _PyCrossInterpreterData *data = PyMem_NEW(_PyCrossInterpreterData, 1);
+    if (data == NULL) {
+        PyThread_release_lock(mutex);
+        PyBuffer_Release(&buffer);
+        return -1;
+    }
+
+    if (buffer.buf != NULL)
+        bytes = PyBytes_FromStringAndSize(buffer.buf, buffer.len);
+    else {
+        Py_INCREF(Py_None);
+        bytes = Py_None;
+    }
+
+    if (_PyObject_GetCrossInterpreterData(bytes, data) != 0) {
+        PyThread_release_lock(mutex);
+        PyMem_Free(data);
+        PyBuffer_Release(&buffer);
+        return -1;
+    }
+
+    // Add the data to the channel.
+    int res = _channel_add(chan, PyInterpreterState_GetID(interp), data);
+    PyThread_release_lock(mutex);
+    if (res != 0) {
+        _PyCrossInterpreterData_Release(data);
+        PyMem_Free(data);
+        PyBuffer_Release(&buffer);
+        return -1;
+    }
+    
+    PyBuffer_Release(&buffer);
+
+    return 0;
+}
+
+static int
 _channel_send(_channels *channels, int64_t id, PyObject *obj)
 {
     PyInterpreterState *interp = _get_current();
@@ -1381,6 +1516,13 @@ _channel_drop(_channels *channels, int64_t id, int send, int recv)
     }
     // Past this point we are responsible for releasing the mutex.
 
+    //  Release the channel
+    if (!chan->release) {
+        PyErr_SetString(ChannelClosedError, "channel already released");
+        return -1;
+    }
+    chan->release = 1;
+
     // Close one or both of the two ends.
     int res = _channel_close_interpreter(chan, PyInterpreterState_GetID(interp), send-recv);
     PyThread_release_lock(mutex);
@@ -1404,6 +1546,35 @@ typedef struct channelid {
     int resolve;
     _channels *channels;
 } channelid;
+
+static int
+channel_id_converter(PyObject *arg, void *ptr)
+{
+    int64_t cid;
+    if (PyObject_TypeCheck(arg, &ChannelIDtype)) {
+        cid = ((channelid *)arg)->id;
+    }
+    else if (PyIndex_Check(arg)) {
+        cid = PyLong_AsLongLong(arg);
+        if (cid == -1 && PyErr_Occurred()) {
+            return 0;
+        }
+        if (cid < 0) {
+            PyErr_Format(PyExc_ValueError,
+                        "channel ID must be a non-negative int, got %R", arg);
+            return 0;
+        }
+    }
+    else {
+        PyErr_Format(PyExc_TypeError,
+                     "channel ID must be an int, got %.100s",
+                     arg->ob_type->tp_name);
+        return 0;
+    }
+    *(int64_t *)ptr = cid;
+    return 1;
+}
+
 
 static channelid *
 newchannelid(PyTypeObject *cls, int64_t cid, int end, _channels *channels,
@@ -1736,7 +1907,7 @@ PyDoc_STRVAR(channelid_doc,
 
 static PyTypeObject ChannelIDtype = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
-    "_xxsubinterpreters.ChannelID", /* tp_name */
+    "_interpreters.ChannelID", /* tp_name */
     sizeof(channelid),              /* tp_basicsize */
     0,                              /* tp_itemsize */
     (destructor)channelid_dealloc,  /* tp_dealloc */
@@ -1793,7 +1964,7 @@ interp_exceptions_init(PyObject *ns)
 
     if (RunFailedError == NULL) {
         // An uncaught exception came out of interp_run_string().
-        RunFailedError = PyErr_NewException("_xxsubinterpreters.RunFailedError",
+        RunFailedError = PyErr_NewException("_interpreters.RunFailedError",
                                             PyExc_RuntimeError, NULL);
         if (RunFailedError == NULL) {
             return -1;
@@ -2327,6 +2498,65 @@ PyDoc_STRVAR(channel_list_all_doc,
 \n\
 Return the list of all IDs for active channels.");
 
+
+static PyObject *
+channel_list_interpreters(PyObject *self, PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"cid", "send", NULL};
+    int64_t cid;            /* Channel ID */
+    int send = 0;           /* Send or receive end? */
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTupleAndKeywords(
+            args, kwds, "O&$p:channel_list_interpreters",
+            kwlist, channel_id_converter, &cid, &send)) {
+        return NULL;
+    }
+
+    _PyChannelState *chan = _channels_lookup(&_globals.channels, cid, NULL);
+    if (chan == NULL) {
+        return NULL;
+    }
+
+    int64_t count = 0;  /* Number of interpreters */
+    int64_t *ids = _channelends_list_interpreters(chan->ends, &count, send);
+    if (ids == NULL) {
+        goto except;
+    }
+
+    ret = PyList_New((Py_ssize_t)count);
+    if (ret == NULL) {
+        goto except;
+    }
+
+    for (int64_t i=0; i < count; i++) {
+        PyObject *id_obj = _PyInterpreterID_New(ids[i]);
+        if (id_obj == NULL) {
+            goto except;
+        }
+        PyList_SET_ITEM(ret, i, id_obj);
+    }
+
+    goto finally;
+
+except:
+    Py_XDECREF(ret);
+    ret = NULL;
+
+finally:
+    PyMem_Free(ids);
+    return ret;
+}
+
+PyDoc_STRVAR(channel_list_interpreters_doc,
+"channel_list_interpreters(cid, *, send) -> [id]\n\
+\n\
+Return the list of all interpreter IDs associated with an end of the channel.\n\
+\n\
+The 'send' argument should be a boolean indicating whether to use the send or\n\
+receive end.");
+
+
 static PyObject *
 channel_send(PyObject *self, PyObject *args, PyObject *kwds)
 {
@@ -2352,6 +2582,32 @@ PyDoc_STRVAR(channel_send_doc,
 "channel_send(cid, obj)\n\
 \n\
 Add the object's data to the channel's queue.");
+
+static PyObject *
+channel_send_buffer(PyObject *self, PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"cid", "obj", NULL};
+    PyObject *id;
+    PyObject *obj;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds,
+                                     "OO:channel_send_buffer", kwlist, &id, &obj)) {
+        return NULL;
+    }
+    int64_t cid = _Py_CoerceID(id);
+    if (cid < 0) {
+        return NULL;
+    }
+
+    if (_channel_send_buffer(&_globals.channels, cid, obj) != 0) {
+        return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(channel_send_buffer_doc,
+"channel_send_buffer(cid, obj)\n\
+\n\
+Add the object's buffer to the channel's queue.");
 
 static PyObject *
 channel_recv(PyObject *self, PyObject *args, PyObject *kwds)
@@ -2496,8 +2752,12 @@ static PyMethodDef module_functions[] = {
      METH_VARARGS | METH_KEYWORDS, channel_destroy_doc},
     {"channel_list_all",          channel_list_all,
      METH_NOARGS, channel_list_all_doc},
+     {"channel_list_interpreters", (PyCFunction)(void(*)(void))channel_list_interpreters,
+     METH_VARARGS | METH_KEYWORDS, channel_list_interpreters_doc},
     {"channel_send",              (PyCFunction)(void(*)(void))channel_send,
      METH_VARARGS | METH_KEYWORDS, channel_send_doc},
+     {"channel_send_buffer",              (PyCFunction)(void(*)(void))channel_send_buffer,
+     METH_VARARGS | METH_KEYWORDS, channel_send_buffer_doc},
     {"channel_recv",              (PyCFunction)(void(*)(void))channel_recv,
      METH_VARARGS | METH_KEYWORDS, channel_recv_doc},
     {"channel_close",             (PyCFunction)(void(*)(void))channel_close,
@@ -2519,7 +2779,7 @@ The 'interpreters' module provides a more convenient interface.");
 
 static struct PyModuleDef interpretersmodule = {
     PyModuleDef_HEAD_INIT,
-    "_xxsubinterpreters",  /* m_name */
+    "_interpreters",  /* m_name */
     module_doc,            /* m_doc */
     -1,                    /* m_size */
     module_functions,      /* m_methods */
@@ -2531,7 +2791,7 @@ static struct PyModuleDef interpretersmodule = {
 
 
 PyMODINIT_FUNC
-PyInit__xxsubinterpreters(void)
+PyInit__interpreters(void)
 {
     if (_init_globals() != 0) {
         return NULL;
