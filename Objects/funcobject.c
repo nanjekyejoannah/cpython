@@ -218,7 +218,7 @@ set_dict(PyFunctionObject *op, PyObject *value)
 static PyObject *
 func_get_dict(PyFunctionObject *op)
 {
-     if (PyErr_WarnPy3k_WithFix("The attribute func_dict is not supported in 3.x, ",
+    if (PyErr_WarnPy3k_WithFix("The attribute func_dict is not supported in 3.x, ",
                                 "use '__dict__' instead", 1) < 0)
         return -1;
     return get_dict(op);
@@ -227,7 +227,7 @@ func_get_dict(PyFunctionObject *op)
 static int
 func_set_dict(PyFunctionObject *op, PyObject *value)
 {
-     if (PyErr_WarnPy3k_WithFix("The attribute func_dict is not supported in 3.x, ",
+    if (PyErr_WarnPy3k_WithFix("The attribute func_dict is not supported in 3.x, ",
                                 "use '__dict__' instead", 1) < 0)
         return -1;
     return set_dict(op, value);
@@ -278,7 +278,7 @@ set_code(PyFunctionObject *op, PyObject *value)
 static PyObject *
 func_get_code(PyFunctionObject *op)
 {
-     if (PyErr_WarnPy3k_WithFix("The attribute func_code is not supported in 3.x, ",
+    if (PyErr_WarnPy3k_WithFix("The attribute func_code is not supported in 3.x, ",
                                 "use '__code__' instead", 1) < 0)
         return -1;
     return get_code(op);
@@ -287,7 +287,7 @@ func_get_code(PyFunctionObject *op)
 static int
 func_set_code(PyFunctionObject *op, PyObject *value)
 {
-     if (PyErr_WarnPy3k_WithFix("The attribute func_code is not supported in 3.x, ",
+    if (PyErr_WarnPy3k_WithFix("The attribute func_code is not supported in 3.x, ",
                                 "use '__code__' instead", 1) < 0)
         return -1;
     return set_code(op, value);
@@ -324,7 +324,7 @@ set_name(PyFunctionObject *op, PyObject *value)
 static PyObject *
 func_get_name(PyFunctionObject *op)
 {
-     if (PyErr_WarnPy3k_WithFix("The attribute func_name is not supported in 3.x, ",
+    if (PyErr_WarnPy3k_WithFix("The attribute func_name is not supported in 3.x, ",
                                 "use '__name__' instead", 1) < 0)
         return NULL;
     return get_name(op);
@@ -333,7 +333,7 @@ func_get_name(PyFunctionObject *op)
 static int
 func_set_name(PyFunctionObject *op, PyObject *value)
 {
-     if (PyErr_WarnPy3k_WithFix("The attribute func_name is not supported in 3.x, ",
+    if (PyErr_WarnPy3k_WithFix("The attribute func_name is not supported in 3.x, ",
                        "use '__name__' instead", 1) < 0)
         return -1;
     return set_name(op, value);
@@ -378,7 +378,7 @@ set_defaults(PyFunctionObject *op, PyObject *value)
 static PyObject *
 func_get_defaults(PyFunctionObject *op)
 {
-     if (PyErr_WarnPy3k_WithFix("The attribute func_defaults is not supported in 3.x, ",
+    if (PyErr_WarnPy3k_WithFix("The attribute func_defaults is not supported in 3.x, ",
                                 "use '__defaults__' instead", 1) < 0)
         return NULL;
     return get_defaults(op);
@@ -387,7 +387,7 @@ func_get_defaults(PyFunctionObject *op)
 static int
 func_set_defaults(PyFunctionObject *op, PyObject *value)
 {
-     if (PyErr_WarnPy3k_WithFix("The attribute func_defaults is not supported in 3.x, ",
+    if (PyErr_WarnPy3k_WithFix("The attribute func_defaults is not supported in 3.x, ",
                                 "use '__defaults__' instead", 1) < 0)
         return -1;
     return set_defaults(op, value);
