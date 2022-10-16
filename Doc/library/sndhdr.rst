@@ -14,8 +14,9 @@
    single: A-LAW
    single: u-LAW
 
-.. deprecated:: 3.11
-   The :mod:`sndhdr` module is deprecated (see :pep:`594` for details).
+.. deprecated-removed:: 3.11 3.13
+   The :mod:`sndhdr` module is deprecated
+   (see :pep:`PEP 594 <594#sndhdr>` for details and alternatives).
 
 --------------
 
@@ -67,6 +68,10 @@ from :func:`whathdr`: and :func:`what`:
 +------------+------------------------------------+
 | ``'hcom'`` | HCOM Files                         |
 +------------+------------------------------------+
+<<<<<<< HEAD
+=======
++------------+------------------------------------+
+>>>>>>> f6b1e4048dc353aecfbfbae07de8212900632098
 | ``'sndt'`` | Sndtool Sound Files                |
 +------------+------------------------------------+
 | ``'voc'``  | Creative Labs Audio Files          |
