@@ -157,10 +157,8 @@ PyFunction_SetClosure(PyObject *op, PyObject *closure)
 #define OFF(x) offsetof(PyFunctionObject, x)
 
 static PyMemberDef func_memberlist[] = {
-    {"__closure__",  T_OBJECT,      OFF(func_closure),
-     RESTRICTED|READONLY},
+    {"__closure__",  T_OBJECT,      OFF(func_closure), RESTRICTED|READONLY},
     {"__doc__",       T_OBJECT,     OFF(func_doc), PY_WRITE_RESTRICTED},
-     RESTRICTED|READONLY},
     {"__globals__",  T_OBJECT,      OFF(func_globals),
      RESTRICTED|READONLY},
     {"__module__",    T_OBJECT,     OFF(func_module), PY_WRITE_RESTRICTED},
